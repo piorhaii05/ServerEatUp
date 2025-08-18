@@ -13,7 +13,7 @@ const querystring = require('qs');
 const multer = require('multer');
 const path = require('path');
 
-const moment = require('moment');
+const moment = require('moment-timezone');
 
 module.exports = router;
 
@@ -43,10 +43,10 @@ const upload = multer({ storage: storage });
 // Mật khẩu OTP:123456
 
 
-const tmnCode ='ZA72WFK8';
-const hashSecret ='GUFJ04UUOZNMUBCJ2H5CYPTBMAHD4V7Z';
-const vnpUrl ='https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
-const returnUrl ='https://api.eatup.com/api/vnpay/vnpay_return';
+const tmnCode = 'ZA72WFK8';
+const hashSecret = 'GUFJ04UUOZNMUBCJ2H5CYPTBMAHD4V7Z';
+const vnpUrl = 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
+const returnUrl = 'https://api.eatup.com/api/vnpay/vnpay_return';
 
 function sortObject(obj) {
     const sorted = {};
@@ -73,8 +73,10 @@ router.post('/vnpay/create_payment_url', (req, res) => {
     if (!amount || !orderData) {
         return res.status(400).json({ message: 'Thiếu thông tin: amount hoặc orderData.' });
     }
+    const createDate = moment().tz("Asia/Ho_Chi_Minh").format("YYYYMMDDHHmmss");
+    const expireDate = moment().tz("Asia/Ho_Chi_Minh").add(15, "minutes").format("YYYYMMDDHHmmss");
 
-    const createDate = moment().format('YYYYMMDDHHmmss');
+    // const createDate = moment().format('YYYYMMDDHHmmss');
     const ipAddr = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
 
     // ⭐️ QUAN TRỌNG: Lưu orderData tạm thời vào bộ nhớ cache hoặc database tạm
@@ -92,25 +94,28 @@ router.post('/vnpay/create_payment_url', (req, res) => {
         'vnp_TxnRef': orderId, // Sử dụng orderId tạm thời
         'vnp_OrderInfo': orderInfo || 'Thanh toán đơn hàng',
         'vnp_OrderType': 'other',
-        'vnp_Amount': amount * 100,
+        'vnp_Amount': (amount * 100).toString(),
         'vnp_ReturnUrl': returnUrl,
-        'vnp_IpAddr': ipAddr,
+        'vnp_IpAddr': ipAddr.replace('::ffff:', ''),
         'vnp_CreateDate': createDate,
-        'vnp_ExpireDate': moment().add(15, 'minutes').format('YYYYMMDDHHmmss')
+        'vnp_ExpireDate': expireDate
     };
+
+    console.log("CreateDate:", createDate);
+    console.log("ExpireDate:", expireDate);
 
     vnp_Params = sortObject(vnp_Params);
     const signData = querystring.stringify(vnp_Params, { encode: false });
 
 
     console.log('CREATE_PAYMENT_URL -> signData:', signData);
-    console.log('CREATE_PAYMENT_URL -> hashSecret:',hashSecret.trim());
+    console.log('CREATE_PAYMENT_URL -> hashSecret:', hashSecret.trim());
 
     const hmac = crypto.createHmac('sha512', hashSecret.trim());
     const signed = hmac.update(signData).digest('hex');
     vnp_Params['vnp_SecureHash'] = signed;
 
-        console.log('--- ĐOẠN CODE TẠO URL ---');
+    console.log('--- ĐOẠN CODE TẠO URL ---');
     console.log('Các tham số:', vnp_Params);
     console.log('Chuỗi dữ liệu (signData):', signData);
     console.log('Hash được tạo (signed):', signed);
