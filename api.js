@@ -46,7 +46,7 @@ const upload = multer({ storage: storage });
 const tmnCode = 'ZA72WFK8';
 const hashSecret = 'GUFJ04UUOZNMUBCJ2H5CYPTBMAHD4V7Z';
 const vnpUrl = 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
-const returnUrl = 'https://servereatup123.onrender.com/vnpay/vnpay_return';
+const returnUrl = 'https://servereatup12345.onrender.com/vnpay/vnpay_return';
 
 function sortObject(obj) {
     const sorted = {};
