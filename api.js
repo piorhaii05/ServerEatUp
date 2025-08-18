@@ -77,7 +77,10 @@ router.post('/vnpay/create_payment_url', (req, res) => {
     const expireDate = moment().tz("Asia/Ho_Chi_Minh").add(15, "minutes").format("YYYYMMDDHHmmss");
 
     // const createDate = moment().format('YYYYMMDDHHmmss');
-    const ipAddr = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    let ipAddr = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    if (ipAddr.includes(',')) {
+        ipAddr = ipAddr.split(',')[0].trim();
+    }
 
     // ⭐️ QUAN TRỌNG: Lưu orderData tạm thời vào bộ nhớ cache hoặc database tạm
     // Ví dụ: Bạn có thể lưu vào một collection tạm thời trong MongoDB
@@ -96,7 +99,7 @@ router.post('/vnpay/create_payment_url', (req, res) => {
         'vnp_OrderType': 'other',
         'vnp_Amount': (amount * 100).toString(),
         'vnp_ReturnUrl': returnUrl,
-        'vnp_IpAddr': ipAddr.replace('::ffff:', ''),
+        'vnp_IpAddr': ipAddr,
         'vnp_CreateDate': createDate,
         'vnp_ExpireDate': expireDate
     };
