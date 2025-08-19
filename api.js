@@ -136,6 +136,37 @@ router.post("/zalopay/callback", (req, res) => {
   res.json(result);
 });
 
+router.post('/check-status', async (req, res) => {
+    try {
+        const { app_trans_id } = req.body;
+
+        if (!app_trans_id) {
+            return res.status(400).json({ message: 'Missing app_trans_id' });
+        }
+
+        const data = {
+            app_id: config.app_id,
+            app_trans_id: app_trans_id
+        };
+
+        const mac = crypto.createHmac('sha256', config.key1)
+                         .update(JSON.stringify(data))
+                         .digest('hex');
+
+        // Gửi yêu cầu truy vấn đến API ZaloPay
+        const response = await axios.post(config.api_endpoint, null, {
+            params: { ...data, mac: mac }
+        });
+
+        // Trả về kết quả từ ZaloPay cho frontend
+        res.json(response.data);
+
+    } catch (error) {
+        console.error('Error checking ZaloPay transaction status:', error);
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+});
+
 
 // Route để xử lý tải lên ảnh
 router.post('/upload', upload.single('image'), (req, res) => {
