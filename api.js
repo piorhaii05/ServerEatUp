@@ -15,6 +15,8 @@ const path = require('path');
 
 const moment = require('moment-timezone');
 
+const axios = require('axios');
+
 module.exports = router;
 
 
@@ -43,158 +45,95 @@ const upload = multer({ storage: storage });
 // Mật khẩu OTP:123456
 
 
-const tmnCode = 'ZA72WFK8';
-const hashSecret = 'GUFJ04UUOZNMUBCJ2H5CYPTBMAHD4V7Z';
-const vnpUrl = 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
-const returnUrl = 'https://servereatup12345.onrender.com/vnpay/vnpay_return';
+const config = {
+  app_id: 2554, // app_id test
+  key1: "kLtgPl8Hg16YQyH_vde9otgsa83a2wX_", // key1 test
+  key2: "kP64t7e8EaW3eK1I93qfK8T0J6C5x_zI_", // key2 test
+  endpoint: "https://sb-openapi.zalopay.vn/v2/create",
+};
 
-function sortObject(obj) {
-    const sorted = {};
-    const keys = Object.keys(obj).sort();
-    for (let key of keys) {
-        sorted[key] = obj[key];
-    }
-    return sorted;
-}
-
-// =================================================================
-// ⚠️ TÍCH HỢP VNPAY START
-// =================================================================
-
-// Route để tạo URL thanh toán VNPay
-// Endpoint: POST /vnpay/create_payment_url
-router.post('/vnpay/create_payment_url', (req, res) => {
-    // Lấy orderData và amount từ body của request.
-    const { amount, orderData, orderInfo } = req.body;
-
-    // ⭐️ SỬA LỖI: Tạo orderId trước khi kiểm tra
-    const orderId = `VNPAY-${moment().format('YYYYMMDDHHmmss')}-${Math.floor(Math.random() * 1000)}`;
-
-    if (!amount || !orderData) {
-        return res.status(400).json({ message: 'Thiếu thông tin: amount hoặc orderData.' });
-    }
-    const createDate = moment().tz("Asia/Ho_Chi_Minh").format("YYYYMMDDHHmmss");
-    const expireDate = moment().tz("Asia/Ho_Chi_Minh").add(15, "minutes").format("YYYYMMDDHHmmss");
-
-    // const createDate = moment().format('YYYYMMDDHHmmss');
-    let ipAddr = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-    if (ipAddr.includes(',')) {
-        ipAddr = ipAddr.split(',')[0].trim();
-    }
-
-    // ⭐️ QUAN TRỌNG: Lưu orderData tạm thời vào bộ nhớ cache hoặc database tạm
-    // Ví dụ: Bạn có thể lưu vào một collection tạm thời trong MongoDB
-    // hoặc một bộ nhớ cache như Redis để truy xuất sau này.
-    // Đối với ví dụ này, tôi sẽ bỏ qua bước này để code dễ đọc,
-    // nhưng trong thực tế, bạn phải lưu nó lại.
-
-    let vnp_Params = {
-        'vnp_Version': '2.1.0',
-        'vnp_Command': 'pay',
-        'vnp_TmnCode': tmnCode,
-        'vnp_Locale': 'vn',
-        'vnp_CurrCode': 'VND',
-        'vnp_TxnRef': orderId, // Sử dụng orderId tạm thời
-        'vnp_OrderInfo': orderInfo || 'Thanh toán đơn hàng',
-        'vnp_OrderType': 'other',
-        'vnp_Amount': (amount * 100).toString(),
-        'vnp_ReturnUrl': returnUrl,
-        'vnp_IpAddr': ipAddr,
-        'vnp_CreateDate': createDate,
-        'vnp_ExpireDate': expireDate
+router.post("/zalopay/create", async (req, res) => {
+  try {
+    const embed_data = {
+      redirecturl: "https://servereatup.onrender.com", // URL redirect khi thanh toán xong
     };
 
-    console.log("CreateDate:", createDate);
-    console.log("ExpireDate:", expireDate);
+    const items = [{}]; // để trống
+    const transID = Math.floor(Math.random() * 1000000);
+    const order = {
+      app_id: config.app_id,
+      app_trans_id: `${new Date()
+        .toISOString()
+        .slice(2, 10)
+        .replace(/-/g, "")}_${transID}`, // YYMMDD_xxxxxx
+      app_user: "demo",
+      app_time: Date.now(),
+      item: JSON.stringify(items),
+      embed_data: JSON.stringify(embed_data),
+      amount: req.body.amount || 10000, // số tiền
+      description: `ZaloPay Demo - Payment #${transID}`,
+      bank_code: "zalopayapp",
+    };
 
-    vnp_Params = sortObject(vnp_Params);
-    const signData = querystring.stringify(vnp_Params, { encode: false });
+    // Tạo mac = HMAC SHA256
+    const data =
+      order.app_id +
+      "|" +
+      order.app_trans_id +
+      "|" +
+      order.app_user +
+      "|" +
+      order.amount +
+      "|" +
+      order.app_time +
+      "|" +
+      order.embed_data +
+      "|" +
+      order.item;
 
+    order.mac = crypto
+      .createHmac("sha256", config.key1)
+      .update(data)
+      .digest("hex");
 
-    console.log('CREATE_PAYMENT_URL -> signData:', signData);
-    console.log('CREATE_PAYMENT_URL -> hashSecret:', hashSecret.trim());
+    // Gửi request đến ZaloPay
+    const result = await axios.post(config.endpoint, null, { params: order });
 
-    const hmac = crypto.createHmac('sha512', hashSecret.trim());
-    const signed = hmac.update(signData).digest('hex');
-    vnp_Params['vnp_SecureHash'] = signed;
-
-    console.log('--- ĐOẠN CODE TẠO URL ---');
-    console.log('Các tham số:', vnp_Params);
-    console.log('Chuỗi dữ liệu (signData):', signData);
-    console.log('Hash được tạo (signed):', signed);
-    console.log('---------------------------');
-
-    const paymentUrl = `${vnpUrl}?${querystring.stringify(vnp_Params, { encode: false })}`;
-
-    return res.status(200).json({ paymentUrl });
+    res.json(result.data);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Lỗi tạo đơn hàng" });
+  }
 });
 
-// ==================================
-// ✅ Xử lý trả về từ VNPay (Return)
-// ==================================
-router.get('/vnpay/vnpay_return', async (req, res) => {
-    let vnp_Params = req.query;
-    const secureHash = vnp_Params['vnp_SecureHash'];
+// API callback (ZaloPay sẽ gọi về khi thanh toán xong)
+router.post("/zalopay/callback", (req, res) => {
+  let result = {};
+  try {
+    const dataStr = req.body.data;
+    const reqMac = req.body.mac;
 
-    delete vnp_Params['vnp_SecureHash'];
-    delete vnp_Params['vnp_SecureHashType'];
+    // kiểm tra mac
+    const mac = crypto
+      .createHmac("sha256", config.key2)
+      .update(dataStr)
+      .digest("hex");
 
-    vnp_Params = sortObject(vnp_Params);
-    const signData = querystring.stringify(vnp_Params, { encode: false });
-
-    console.log('VNPAY_RETURN -> signData:', signData);
-    console.log('VNPAY_RETURN -> hashSecret:', hashSecret.trim());
-
-    const hmac = crypto.createHmac('sha512', hashSecret.trim());
-    const signed = hmac.update(signData).digest('hex');
-
-    if (secureHash === signed) {
-        const orderId = vnp_Params['vnp_TxnRef'];
-        const rspCode = vnp_Params['vnp_ResponseCode'];
-
-        if (rspCode === '00') {
-            try {
-                await mongoose.connect(COMMON.uri);
-
-                // ⭐️ SỬA ĐỔI CHÍNH: Lấy orderData đã lưu tạm từ bộ nhớ cache hoặc database tạm
-                // Đây là ví dụ, bạn phải thay thế bằng logic thực tế của bạn
-                // Tốt nhất là lưu orderData tạm với orderId làm key
-                // const savedOrderData = await TemporaryOrderModel.findOne({ orderId });
-                const savedOrderData = await findTemporaryOrderData(orderId); // <- Hàm này bạn phải tự viết
-
-                if (!savedOrderData) {
-                    return res.status(404).send('<h1>Lỗi!</h1><p>Không tìm thấy thông tin đơn hàng tạm thời.</p>');
-                }
-
-                // ⭐️ TẠO ĐƠN HÀNG MỚI trong database chính thức
-                const newOrder = new OrderModel({
-                    ...savedOrderData.orderData, // Lấy dữ liệu đã lưu
-                    paymentStatus: 'Paid',
-                    paymentMethod: 'VNPAY',
-                    paymentDetails: vnp_Params,
-                    status: 'Pending' // Hoặc 'Processing' tùy thuộc vào logic của bạn
-                });
-
-                await newOrder.save();
-
-                // ⭐️ Tác vụ dọn dẹp sau khi thanh toán thành công
-                // Ví dụ: Xóa các sản phẩm đã đặt khỏi giỏ hàng của người dùng
-                // const selectedProductIds = newOrder.items.map(item => item.product_id);
-                // await CartModel.deleteMany({ user_id: newOrder.user_id, product_id: { $in: selectedProductIds } });
-
-                return res.status(200).send(`<h1>Thanh toán thành công!</h1><p>Mã đơn hàng: ${newOrder._id}</p>`);
-            } catch (err) {
-                console.error('Lỗi khi tạo đơn hàng:', err);
-                return res.status(500).send('<h1>Lỗi máy chủ!</h1>');
-            }
-        } else {
-            // Thanh toán thất bại
-            return res.status(400).send(`<h1>Thanh toán thất bại!</h1><p>Mã lỗi: ${rspCode}</p>`);
-        }
+    if (reqMac !== mac) {
+      result.return_code = -1;
+      result.return_message = "mac not equal";
     } else {
-        console.warn('Chữ ký không hợp lệ!');
-        return res.status(400).send('<h1>Lỗi!</h1><p>Chữ ký không hợp lệ.</p>');
+      const dataJson = JSON.parse(dataStr);
+      console.log("Thanh toán thành công:", dataJson);
+
+      result.return_code = 1;
+      result.return_message = "success";
     }
+  } catch (ex) {
+    result.return_code = 0;
+    result.return_message = ex.message;
+  }
+  res.json(result);
 });
 
 
