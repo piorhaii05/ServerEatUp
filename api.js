@@ -55,7 +55,7 @@ const config = {
 router.post("/zalopay/create", async (req, res) => {
   try {
     const embed_data = {
-      redirecturl: "https://servereatupnew.onrender.com", // URL redirect khi thanh toán xong
+      redirecturl: "eatup://zalopay", // URL redirect khi thanh toán xong
     };
 
     const items = [{}]; // để trống
