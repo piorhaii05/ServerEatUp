@@ -46,9 +46,9 @@ const upload = multer({ storage: storage });
 
 
 const config = {
-  app_id: 2554, // app_id test
-  key1: "kLtgPl8Hg16YQyH_vde9otgsa83a2wX_", // key1 test
-  key2: "kP64t7e8EaW3eK1I93qfK8T0J6C5x_zI_", // key2 test
+  app_id: 553, // app_id test
+  key1: "9phuAOYhan4urywHTh0ndEXiV3pKHr5Q", // key1 test
+  key2: "Iyz2habzyr7AG8SgvoBCbKwKi3UzlLi3", // key2 test
   endpoint: "https://sb-openapi.zalopay.vn/v2/create",
 };
 
