@@ -46,127 +46,147 @@ const upload = multer({ storage: storage });
 
 
 const config = {
-  app_id: 553, // app_id test
-  key1: "9phuAOYhan4urywHTh0ndEXiV3pKHr5Q", // key1 test
-  key2: "Iyz2habzyr7AG8SgvoBCbKwKi3UzlLi3", // key2 test
-  endpoint: "https://sb-openapi.zalopay.vn/v2/create",
+    app_id: 553, // app_id test
+    key1: "9phuAOYhan4urywHTh0ndEXiV3pKHr5Q", // key1 test
+    key2: "Iyz2habzyr7AG8SgvoBCbKwKi3UzlLi3", // key2 test
+    // Endpoint tạo đơn hàng
+    create_endpoint: "https://sb-openapi.zalopay.vn/v2/create", 
+    // Endpoint kiểm tra trạng thái
+    status_endpoint: "https://sb-openapi.zalopay.vn/v2/query",
 };
 
+// API tạo đơn hàng ZaloPay
 router.post("/zalopay/create", async (req, res) => {
-  try {
-    const embed_data = {
-      redirecturl: "eatup://zalopay", // URL redirect khi thanh toán xong
-    };
-
-    const items = [{}]; // để trống
-    const transID = Math.floor(Math.random() * 1000000);
-    const order = {
-      app_id: config.app_id,
-      app_trans_id: `${new Date()
-        .toISOString()
-        .slice(2, 10)
-        .replace(/-/g, "")}_${transID}`, // YYMMDD_xxxxxx
-      app_user: "demo",
-      app_time: Date.now(),
-      item: JSON.stringify(items),
-      embed_data: JSON.stringify(embed_data),
-      amount: req.body.amount || 10000, // số tiền
-      description: `ZaloPay Demo - Payment #${transID}`,
-      bank_code: "zalopayapp",
-    };
-
-    // Tạo mac = HMAC SHA256
-    const data =
-      order.app_id +
-      "|" +
-      order.app_trans_id +
-      "|" +
-      order.app_user +
-      "|" +
-      order.amount +
-      "|" +
-      order.app_time +
-      "|" +
-      order.embed_data +
-      "|" +
-      order.item;
-
-    order.mac = crypto
-      .createHmac("sha256", config.key1)
-      .update(data)
-      .digest("hex");
-
-    // Gửi request đến ZaloPay
-    const result = await axios.post(config.endpoint, null, { params: order });
-
-    res.json(result.data);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Lỗi tạo đơn hàng" });
-  }
-});
-
-// API callback (ZaloPay sẽ gọi về khi thanh toán xong)
-router.post("/zalopay/callback", (req, res) => {
-  let result = {};
-  try {
-    const dataStr = req.body.data;
-    const reqMac = req.body.mac;
-
-    // kiểm tra mac
-    const mac = crypto
-      .createHmac("sha256", config.key2)
-      .update(dataStr)
-      .digest("hex");
-
-    if (reqMac !== mac) {
-      result.return_code = -1;
-      result.return_message = "mac not equal";
-    } else {
-      const dataJson = JSON.parse(dataStr);
-      console.log("Thanh toán thành công:", dataJson);
-
-      result.return_code = 1;
-      result.return_message = "success";
-    }
-  } catch (ex) {
-    result.return_code = 0;
-    result.return_message = ex.message;
-  }
-  res.json(result);
-});
-
-router.post('/check-status', async (req, res) => {
     try {
-        const { app_trans_id } = req.body;
+        const { amount, orderData } = req.body;
+        
+        // Đảm bảo dữ liệu cần thiết đã được truyền lên
+        if (!amount || !orderData) {
+            return res.status(400).json({ message: "Missing amount or order data" });
+        }
 
-        if (!app_trans_id) {
-            return res.status(400).json({ message: 'Missing app_trans_id' });
+        const embed_data = {
+            redirecturl: "eatup://zalopay",
+            order_id_backend: orderData.order_id,
+        };
+
+        const items = orderData.items.map(item => ({
+            item_id: item.product_id,
+            item_name: item.product_title,
+            item_price: item.price_at_order,
+            item_quantity: item.quantity
+        }));
+        
+        // Tạo app_trans_id duy nhất
+        const transID = Math.floor(Math.random() * 1000000);
+        const app_trans_id = `${moment().format('YYMMDD')}_${transID}`;
+        const app_time = Date.now();
+
+        // Chuẩn bị payload cho ZaloPay
+        const order = {
+            app_id: config.app_id,
+            app_trans_id: app_trans_id,
+            app_user: "eatup_user_" + orderData.user_id, // Sử dụng ID người dùng thật
+            app_time: app_time,
+            item: JSON.stringify(items),
+            embed_data: JSON.stringify(embed_data),
+            amount: amount,
+            description: `Thanh toán đơn hàng EatUp #${app_trans_id}`,
+            bank_code: "zalopayapp",
+        };
+
+        // Tạo chuỗi MAC để xác thực
+        // *** ĐÃ SỬA: Sử dụng các biến đã được stringify để tạo MAC ***
+        const data = `${order.app_id}|${order.app_trans_id}|${order.app_user}|${order.amount}|${order.app_time}|${order.embed_data}|${order.item}`;
+        order.mac = crypto
+            .createHmac("sha256", config.key1)
+            .update(data)
+            .digest("hex");
+
+        // Gửi request đến ZaloPay
+        const result = await axios.post(config.create_endpoint, null, { params: order });
+        
+        if (result.data.return_code === 1) {
+            // Lưu app_trans_id vào database để kiểm tra sau này
+            await OrderModel.findByIdAndUpdate(orderData.order_id, { zalo_trans_id: app_trans_id });
+        }
+
+        res.json(result.data);
+    } catch (error) {
+        console.error("Lỗi khi tạo đơn hàng ZaloPay:", error.response?.data || error.message);
+        res.status(500).json({ message: "Lỗi tạo đơn hàng", error: error.message });
+    }
+});
+
+// API kiểm tra trạng thái giao dịch
+// *** ĐÃ SỬA: Đổi endpoint và sửa lỗi tên biến, lỗi logic ***
+router.post('/zalopay/check-status', async (req, res) => {
+    try {
+        console.log('--- Bắt đầu xử lý kiểm tra trạng thái ZaloPay ---');
+        console.log('Request body:', req.body);
+        
+        // Sửa tên biến từ 'app_trans_id' sang 'apptransid' để khớp với frontend
+        const { apptransid } = req.body;
+
+        if (!apptransid) {
+            console.error('Lỗi: Thiếu apptransid');
+            return res.status(400).json({ message: 'Missing apptransid' });
         }
 
         const data = {
             app_id: config.app_id,
-            app_trans_id: app_trans_id
+            app_trans_id: apptransid
         };
 
+        // Chuỗi MAC để xác thực
         const mac = crypto.createHmac('sha256', config.key1)
-                         .update(JSON.stringify(data))
-                         .digest('hex');
+            .update(data.app_id + '|' + data.app_trans_id + '|' + config.key1) // Theo tài liệu ZaloPay
+            .digest('hex');
 
         // Gửi yêu cầu truy vấn đến API ZaloPay
-        const response = await axios.post(config.api_endpoint, null, {
-            params: { ...data, mac: mac }
+        const response = await axios.post(config.status_endpoint, querystring.stringify({ ...data, mac: mac }), {
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
         });
 
-        // Trả về kết quả từ ZaloPay cho frontend
+        console.log('Phản hồi từ ZaloPay:', response.data);
         res.json(response.data);
 
     } catch (error) {
-        console.error('Error checking ZaloPay transaction status:', error);
+        console.error('Lỗi khi kiểm tra trạng thái ZaloPay:', error.response?.data || error.message);
         res.status(500).json({ message: 'Internal Server Error' });
     }
 });
 
+// API callback (ZaloPay sẽ gọi về khi thanh toán xong)
+router.post("/zalopay/callback", (req, res) => {
+    let result = {};
+    try {
+        let dataStr = req.body.data;
+        let reqMac = req.body.mac;
+        let mac = crypto.createHmac("sha256", config.key2).update(dataStr).digest("hex");
+
+        if (reqMac !== mac) {
+            result.return_code = -1;
+            result.return_message = "mac not equal";
+        } else {
+            let dataJson = JSON.parse(dataStr);
+            console.log("Thanh toán thành công:", dataJson);
+            // Sau khi thanh toán thành công, bạn có thể cập nhật trạng thái đơn hàng tại đây
+            // Ví dụ:
+            // const orderId = dataJson.embed_data.order_id_backend;
+            // await OrderModel.findByIdAndUpdate(orderId, { status: 'Paid' });
+            
+            result.return_code = 1;
+            result.return_message = "success";
+        }
+    } catch (ex) {
+        result.return_code = 0;
+        result.return_message = ex.message;
+    }
+    res.json(result);
+});
 
 // Route để xử lý tải lên ảnh
 router.post('/upload', upload.single('image'), (req, res) => {
