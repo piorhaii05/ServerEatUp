@@ -1095,17 +1095,17 @@ router.post('/order/create', async (req, res) => {
 
         // --- Tăng used_count của voucher nếu có (SAU KHI TẤT CẢ ĐƠN HÀNG ĐƯỢC TẠO) ---
         // Phần này chỉ cần chạy một lần cho toàn bộ giao dịch, không cần lặp trong mỗi đơn hàng con.
-        if (voucher_id) {
-            try {
-                await VoucherModel.findByIdAndUpdate(
-                    voucher_id,
-                    { $inc: { used_count: 1 } }
-                );
-                // console.log(`Đã tăng used_count cho voucher ${voucher_id}`);
-            } catch (voucherUpdateError) {
-                console.error(`Lỗi khi cập nhật used_count của voucher ${voucher_id}:`, voucherUpdateError);
-            }
-        }
+        // if (voucher_id) {
+        //     try {
+        //         await VoucherModel.findByIdAndUpdate(
+        //             voucher_id,
+        //             { $inc: { used_count: 1 } }
+        //         );
+        //         // console.log(`Đã tăng used_count cho voucher ${voucher_id}`);
+        //     } catch (voucherUpdateError) {
+        //         console.error(`Lỗi khi cập nhật used_count của voucher ${voucher_id}:`, voucherUpdateError);
+        //     }
+        // }
 
         // Gửi phản hồi thành công
         res.status(201).json({ message: 'Đặt hàng thành công!', orders: createdOrders });
